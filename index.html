@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Invigo - Sistem Inventaris Profesional</title>
+    <link href="https://fonts.googleapis.com/css?family=Roboto:100,300,400,500,700,900" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/@mdi/font@latest/css/materialdesignicons.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/vuetify@3.6.10/dist/vuetify.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+    <style>
+        .low-stock-row { background-color: rgba(255, 205, 210, 0.5) !important; }
+        .low-stock-row:hover { background-color: rgba(255, 205, 210, 0.7) !important; }
+        .login-visual {
+            background-image: linear-gradient(rgba(0,0,0,0.5), rgba(0,0,0,0.5)), url(https://images.unsplash.com/photo-1578575437130-527eed3abbec?q=80&w=2070&auto=format&fit=crop);
+            background-size: cover;
+            background-position: center center;
+        }
+    </style>
+</head>
+<body>
+<div id="app">
+    <v-app>
+        <!-- Tampilan Login Baru (Split Screen) -->
+        <div v-if="!user.isLoggedIn">
+            <v-container class="fill-height pa-0" fluid>
+                <v-row no-gutters class="fill-height">
+                    <v-col cols="12" md="6" class="login-visual d-none d-md-flex align-center justify-center">
+                        <div class="text-white text-center pa-8">
+                            <v-icon size="64" class="mb-4">mdi-chart-box-outline</v-icon>
+                            <h1 class="text-h4 font-weight-bold mb-3">Invigo</h1>
+                            <p class="text-subtitle-1">Sistem Manajemen Inventaris Cerdas & Terintegrasi</p>
+                        </div>
+                    </v-col>
+                    <v-col cols="12" md="6" class="d-flex align-center justify-center bg-grey-lighten-4">
+                        <v-card class="elevation-0 pa-8" max-width="450" width="100%">
+                            <h2 class="text-h5 font-weight-bold mb-2">Selamat Datang Kembali</h2>
+                            <p class="text-grey-darken-1 mb-8">Silakan login untuk melanjutkan</p>
+                            <v-form @submit.prevent="handleLogin">
+                                <v-text-field variant="outlined" label="Email" v-model="loginForm.email" prepend-inner-icon="mdi-account-outline" type="email" required class="mb-4"></v-text-field>
+                                <v-text-field variant="outlined" label="Password" v-model="loginForm.password" prepend-inner-icon="mdi-lock-outline" type="password" required></v-text-field>
+                                <v-alert v-if="loginError" type="error" dense class="mb-4">{{ loginError }}</v-alert>
+                                <v-btn type="submit" color="primary" block size="large" class="mt-4">Login</v-btn>
+                            </v-form>
+                        </v-card>
+                    </v-col>
+                </v-row>
+            </v-container>
+        </div>
+
+        <!-- Aplikasi Utama dengan Navigasi Kiri -->
+        <div v-else>
+            <v-navigation-drawer v-model="drawer" app>
+                <v-list-item prepend-icon="mdi-chart-box-outline" title="Invigo" class="font-weight-bold"></v-list-item>
+                <v-divider></v-divider>
+                <v-list density="compact" nav>
+                    <v-list-item v-if="user.role === 'admin'" prepend-icon="mdi-view-dashboard" title="Dashboard" value="dashboard" @click="page = 'dashboard'"></v-list-item>
+                    <v-list-item prepend-icon="mdi-warehouse" title="Stok Gudang" value="stock" @click="page = 'stock'"></v-list-item>
+                    <v-list-item prepend-icon="mdi-cart-arrow-down" title="Purchase Order" value="po" @click="page = 'po'"></v-list-item>
+                    <v-list-item prepend-icon="mdi-cart-arrow-up" title="Sales Order" value="so" @click="page = 'so'"></v-list-item>
+                    <v-list-item v-if="user.role === 'admin'" prepend-icon="mdi-swap-horizontal-bold" title="Adjustment" value="adjustment" @click="page = 'adjustment'"></v-list-item>
+                    <v-list-item v-if="user.role === 'admin'" prepend-icon="mdi-chart-bar" title="Laporan" value="reports" @click="page = 'reports'"></v-list-item>
+                    <v-list-item v-if="user.role === 'admin'" prepend-icon="mdi-database" title="Master Data" value="masterdata" @click="page = 'masterdata'"></v-list-item>
+                </v-list>
+            </v-navigation-drawer>
+
+            <v-app-bar app color="white" flat>
+                <v-app-bar-nav-icon @click="drawer = !drawer"></v-app-bar-nav-icon>
+                <v-app-bar-title class="font-weight-bold">{{ currentPageTitle }}</v-app-bar-title>
+                <v-spacer></v-spacer>
+                <v-chip small>{{ user.email }} ({{ user.role }})</v-chip>
+                <v-btn icon @click="handleLogout"><v-icon>mdi-logout</v-icon></v-btn>
+            </v-app-bar>
+
+            <v-main class="bg-grey-lighten-4">
+                <v-container>
+                    <v-window v-model="page">
+                        <v-window-item value="dashboard" v-if="user.role === 'admin'">
+                            <v-row>
+                                <v-col cols="12" sm="4">
+                                    <v-card class="pa-4 text-center" elevation="2">
+                                        <div class="text-h4 font-weight-bold">{{ totalSKU }}</div>
+                                        <div class="text-subtitle-1">Total Jenis Barang (SKU)</div>
+                                    </v-card>
+                                </v-col>
+                                <v-col cols="12" sm="4">
+                                    <v-card class="pa-4 text-center" elevation="2">
+                                        <div class="text-h4 font-weight-bold">{{ totalUnits }}</div>
+                                        <div class="text-subtitle-1">Total Unit Barang</div>
+                                    </v-card>
+                                </v-col>
+                                <v-col cols="12" sm="4">
+                                    <v-card class="pa-4 text-center" elevation="2">
+                                        <div class="text-h4 font-weight-bold">Rp {{ totalAssetValue.toLocaleString('id-ID') }}</div>
+                                        <div class="text-subtitle-1">Total Nilai Aset</div>
+                                    </v-card>
+                                </v-col>
+                                <v-col cols="12" md="8">
+                                    <v-card class="pa-4" elevation="2">
+                                        <h3 class="text-h6 mb-2">Aktivitas 7 Hari Terakhir</h3>
+                                        <canvas id="activityChart"></canvas>
+                                    </v-card>
+                                </v-col>
+                                <v-col cols="12" md="4">
+                                    <v-card class="pa-4" elevation="2">
+                                        <h3 class="text-h6 mb-2">Peringatan Stok Rendah</h3>
+                                        <v-list v-if="lowStockItems.length > 0" lines="two" density="compact">
+                                            <v-list-item v-for="item in lowStockItems" :key="item.id" :title="item.name" :subtitle="`Sisa: ${item.physicalStock} | Min: ${item.minStockLevel}`">
+                                                <template v-slot:prepend><v-icon color="error">mdi-alert-circle</v-icon></template>
+                                            </v-list-item>
+                                        </v-list>
+                                        <div v-else class="text-center text-grey-darken-1 pa-4">
+                                            <v-icon size="x-large" color="success">mdi-check-circle</v-icon>
+                                            <p class="mt-2">Semua stok aman!</p>
+                                        </div>
+                                    </v-card>
+                                </v-col>
+                            </v-row>
+                        </v-window-item>
+
+                        <v-window-item value="stock">
+                            <v-card>
+                                <v-text-field v-model="stockSearch" label="Cari berdasarkan SKU atau Nama..." class="pa-4" prepend-inner-icon="mdi-magnify" clearable hide-details></v-text-field>
+                                <v-data-table :headers="stockHeaders" :items="filteredStockItems" :loading="isLoading" loading-text="Menghitung stok..." density="compact">
+                                    <template v-slot:item="{ item }">
+                                        <tr :class="{ 'low-stock-row': item.availableStock <= item.minStockLevel }">
+                                            <td>{{ item.sku }}</td>
+                                            <td>{{ item.name }}</td>
+                                            <td class="text-center"><v-chip size="small" color="blue" dark>{{ item.physicalStock }}</v-chip></td>
+                                            <td class="text-center"><v-chip size="small" :color="item.availableStock > (item.minStockLevel || 0) ? 'green' : 'orange'" dark>{{ item.availableStock }}</v-chip></td>
+                                            <td class="text-center">
+                                                <v-icon size="small" @click="showHistory(item)" title="Lihat Riwayat">mdi-history</v-icon>
+                                            </td>
+                                        </tr>
+                                    </template>
+                                </v-data-table>
+                            </v-card>
+                        </v-window-item>
+
+                        <v-window-item value="po">
+                            <v-card>
+                                <v-data-table :headers="poHeaders" :items="purchaseOrders" :loading="isLoading" density="compact">
+                                    <template v-slot:top>
+                                        <v-toolbar flat>
+                                            <v-toolbar-title>Purchase Order</v-toolbar-title>
+                                            <v-spacer></v-spacer>
+                                            <v-btn v-if="user.role === 'admin'" color="primary" @click="openPODialog()">+ Buat PO Baru</v-btn>
+                                        </v-toolbar>
+                                    </template>
+                                    <template v-slot:item.status="{ item }">
+                                        <v-chip size="small" :color="getPOStatusColor(item.status)">{{ item.status }}</v-chip>
+                                    </template>
+                                    <template v-slot:item.createdAt="{ item }">
+                                        {{ item.createdAt ? new Date(item.createdAt.seconds * 1000).toLocaleDateString('id-ID') : 'N/A' }}
+                                    </template>
+                                    <template v-slot:item.actions="{ item }">
+                                        <v-btn size="small" color="success" @click="openReceiveDialog(item)" :disabled="item.status === 'COMPLETED'">Terima Barang</v-btn>
+                                    </template>
+                                </v-data-table>
+                            </v-card>
+                        </v-window-item>
+
+                        <v-window-item value="so">
+                            <v-card>
+                                <v-data-table :headers="soHeaders" :items="salesOrders" :loading="isLoading" density="compact">
+                                    <template v-slot:top>
+                                        <v-toolbar flat>
+                                            <v-toolbar-title>Sales Order</v-toolbar-title>
+                                            <v-spacer></v-spacer>
+                                            <v-btn v-if="user.role === 'admin'" color="primary" @click="openSODialog()">+ Buat SO Baru</v-btn>
+                                        </v-toolbar>
+                                    </template>
+                                    <template v-slot:item.status="{ item }">
+                                        <v-chip size="small" :color="getSOStatusColor(item.status)">{{ item.status }}</v-chip>
+                                    </template>
+                                    <template v-slot:item.createdAt="{ item }">
+                                        {{ item.createdAt ? new Date(item.createdAt.seconds * 1000).toLocaleDateString('id-ID') : 'N/A' }}
+                                    </template>
+                                    <template v-slot:item.actions="{ item }">
+                                        <v-btn size="small" color="info" @click="openShipmentDialog(item)" :disabled="item.status === 'SHIPPED'">Kirim Barang</v-btn>
+                                    </template>
+                                </v-data-table>
+                            </v-card>
+                        </v-window-item>
+
+                        <v-window-item value="adjustment" v-if="user.role === 'admin'">
+                            <v-card max-width="800" class="mx-auto">
+                                <v-toolbar flat>
+                                    <v-toolbar-title>Buat Penyesuaian Stok</v-toolbar-title>
+                                </v-toolbar>
+                                <v-card-text>
+                                    <v-autocomplete v-model="adjustment.itemId" :items="items" item-title="name" item-value="id" label="Pilih Barang" class="mb-4" variant="outlined" hide-details></v-autocomplete>
+                                    <v-text-field v-model.number="adjustment.quantity" label="Jumlah Penyesuaian (Gunakan - untuk mengurangi)" type="number" class="my-4" variant="outlined" hide-details></v-text-field>
+                                    <v-textarea v-model="adjustment.reason" label="Alasan Penyesuaian (Wajib Diisi)" rows="3" variant="outlined" hide-details></v-textarea>
+                                </v-card-text>
+                                <v-card-actions class="pa-4">
+                                    <v-spacer></v-spacer>
+                                    <v-btn color="primary" @click="saveAdjustment" :disabled="!adjustment.itemId || !adjustment.quantity || !adjustment.reason" size="large">Simpan Penyesuaian</v-btn>
+                                </v-card-actions>
+                            </v-card>
+                        </v-window-item>
+
+                        <v-window-item value="reports" v-if="user.role === 'admin'">
+                            <v-card>
+                                <v-toolbar flat>
+                                    <v-toolbar-title>Laporan Transaksi</v-toolbar-title>
+                                </v-toolbar>
+                                <v-card-text>
+                                    <v-row>
+                                        <v-col cols="12" sm="5">
+                                            <v-text-field type="date" v-model="reportStartDate" label="Dari Tanggal" variant="outlined" hide-details></v-text-field>
+                                        </v-col>
+                                        <v-col cols="12" sm="5">
+                                            <v-text-field type="date" v-model="reportEndDate" label="Sampai Tanggal" variant="outlined" hide-details></v-text-field>
+                                        </v-col>
+                                        <v-col cols="12" sm="2">
+                                            <v-btn color="success" @click="exportToCSV" block height="56" prepend-icon="mdi-file-excel">Ekspor CSV</v-btn>
+                                        </v-col>
+                                    </v-row>
+                                </v-card-text>
+                                <v-data-table
+                                    :headers="historyHeaders"
+                                    :items="filteredTransactionsForReport"
+                                    :loading="isLoading"
+                                    density="compact"
+                                >
+                                    <template v-slot:item.quantityChange="{ item }">
+                                        <v-chip size="small" :color="getHistoryChipColor(item.type, item.quantityChange)">{{ item.quantityChange > 0 ? '+' : '' }}{{ item.quantityChange }}</v-chip>
+                                    </template>
+                                    <template v-slot:item.timestamp="{ item }">
+                                        {{ item.timestamp ? new Date(item.timestamp.seconds * 1000).toLocaleString('id-ID') : 'N/A' }}
+                                    </template>
+                                </v-data-table>
+                            </v-card>
+                        </v-window-item>
+
+                        <v-window-item value="masterdata" v-if="user.role === 'admin'">
+                           <v-tabs v-model="masterDataTab" bg-color="white" color="primary">
+                               <v-tab value="items">Barang</v-tab>
+                               <v-tab value="suppliers">Supplier</v-tab>
+                               <v-tab value="customers">Pelanggan</v-tab>
+                           </v-tabs>
+                           <v-window v-model="masterDataTab">
+                               <v-window-item value="items">
+                                   <v-card>
+                                        <v-data-table :headers="itemMasterHeaders" :items="items" :loading="isLoading" loading-text="Memuat data master..." density="compact">
+                                            <template v-slot:top>
+                                                <v-toolbar flat>
+                                                    <v-toolbar-title>Data Master Barang</v-toolbar-title>
+                                                    <v-spacer></v-spacer>
+                                                    <v-btn color="primary" @click="openItemDialog()">+ Tambah Barang Baru</v-btn>
+                                                </v-toolbar>
+                                            </template>
+                                            <template v-slot:item.costPrice="{ item }">
+                                                Rp {{ (item.costPrice || 0).toLocaleString('id-ID') }}
+                                            </template>
+                                            <template v-slot:item.actions="{ item }">
+                                                <v-icon size="small" class="me-2" @click="editItem(item)">mdi-pencil</v-icon>
+                                                <v-icon size="small" @click="deleteItem(item)">mdi-delete</v-icon>
+                                            </template>
+                                        </v-data-table>
+                                    </v-card>
+                               </v-window-item>
+                               <v-window-item value="suppliers">
+                                   <v-card>
+                                        <v-data-table :headers="supplierHeaders" :items="suppliers" :loading="isLoading" density="compact">
+                                            <template v-slot:top>
+                                                <v-toolbar flat>
+                                                    <v-toolbar-title>Data Master Supplier</v-toolbar-title>
+                                                    <v-spacer></v-spacer>
+                                                    <v-btn color="primary" @click="openSupplierDialog()">+ Tambah Supplier</v-btn>
+                                                </v-toolbar>
+                                            </template>
+                                            <template v-slot:item.actions="{ item }">
+                                                <v-icon size="small" class="me-2" @click="editSupplier(item)">mdi-pencil</v-icon>
+                                                <v-icon size="small" @click="deleteSupplier(item)">mdi-delete</v-icon>
+                                            </template>
+                                        </v-data-table>
+                                    </v-card>
+                               </v-window-item>
+                               <v-window-item value="customers">
+                                   <v-card>
+                                        <v-data-table :headers="customerHeaders" :items="customers" :loading="isLoading" density="compact">
+                                            <template v-slot:top>
+                                                <v-toolbar flat>
+                                                    <v-toolbar-title>Data Master Pelanggan</v-toolbar-title>
+                                                    <v-spacer></v-spacer>
+                                                    <v-btn color="primary" @click="openCustomerDialog()">+ Tambah Pelanggan</v-btn>
+                                                </v-toolbar>
+                                            </template>
+                                            <template v-slot:item.actions="{ item }">
+                                                <v-icon size="small" class="me-2" @click="editCustomer(item)">mdi-pencil</v-icon>
+                                                <v-icon size="small" @click="deleteCustomer(item)">mdi-delete</v-icon>
+                                            </template>
+                                        </v-data-table>
+                                    </v-card>
+                               </v-window-item>
+                           </v-window>
+                        </v-window-item>
+                    </v-window>
+                </v-container>
+            </v-main>
+
+            <!-- Semua Dialog -->
+            <v-dialog v-model="itemDialog" max-width="600px">
+                <v-card>
+                    <v-card-title><span class="text-h5">{{ itemFormTitle }}</span></v-card-title>
+                    <v-card-text>
+                        <v-container>
+                            <v-row>
+                                <v-col cols="12"><v-text-field v-model="editedItem.sku" label="SKU (Kode Unik)" :readonly="editedIndex > -1" variant="outlined"></v-text-field></v-col>
+                                <v-col cols="12"><v-text-field v-model="editedItem.name" label="Nama Barang" variant="outlined"></v-text-field></v-col>
+                                <v-col cols="12" sm="6"><v-text-field v-model.number="editedItem.costPrice" label="Harga Modal (Rp)" type="number" prefix="Rp" variant="outlined"></v-text-field></v-col>
+                                <v-col cols="12" sm="6"><v-text-field v-model.number="editedItem.minStockLevel" label="Stok Minimum" type="number" variant="outlined"></v-text-field></v-col>
+                                <v-col cols="12" sm="6"><v-text-field v-model="editedItem.location" label="Lokasi Gudang" variant="outlined"></v-text-field></v-col>
+                                <v-col cols="12" sm="6"><v-text-field v-model="editedItem.barcode" label="Barcode" variant="outlined"></v-text-field></v-col>
+                            </v-row>
+                        </v-container>
+                    </v-card-text>
+                    <v-card-actions>
+                        <v-spacer></v-spacer>
+                        <v-btn color="blue-darken-1" variant="text" @click="closeItemDialog">Batal</v-btn>
+                        <v-btn color="blue-darken-1" variant="text" @click="saveItem">Simpan</v-btn>
+                    </v-card-actions>
+                </v-card>
+            </v-dialog>
+            
+            <v-dialog v-model="historyDialog" max-width="800px">
+                 <v-card>
+                    <v-card-title><span class="text-h5">Riwayat Transaksi: {{ historyItem.name }}</span></v-card-title>
+                    <v-card-text>
+                        <v-data-table :headers="historyHeaders" :items="historyTransactions" :loading="isHistoryLoading" density="compact">
+                            <template v-slot:item.quantityChange="{ item }">
+                                <v-chip size="small" :color="getHistoryChipColor(item.type, item.quantityChange)">{{ item.quantityChange > 0 ? '+' : '' }}{{ item.quantityChange }}</v-chip>
+                            </template>
+                            <template v-slot:item.timestamp="{ item }">
+                                {{ item.timestamp ? new Date(item.timestamp.seconds * 1000).toLocaleString('id-ID') : 'N/A' }}
+                            </template>
+                        </v-data-table>
+                    </v-card-text>
+                    <v-card-actions><v-spacer></v-spacer><v-btn color="blue-darken-1" variant="text" @click="historyDialog = false">Tutup</v-btn></v-card-actions>
+                </v-card>
+            </v-dialog>
+
+            <v-dialog v-model="poDialog" max-width="800px">
+                <v-card>
+                    <v-card-title><span class="text-h5">Buat Purchase Order Baru</span></v-card-title>
+                    <v-card-text>
+                        <v-row>
+                            <v-col cols="6"><v-text-field v-model="editedPO.poNumber" label="Nomor PO" variant="outlined"></v-text-field></v-col>
+                            <v-col cols="6"><v-autocomplete :items="suppliers" item-title="name" item-value="id" v-model="editedPO.supplierId" label="Pilih Supplier" variant="outlined"></v-autocomplete></v-col>
+                        </v-row>
+                        <v-divider class="my-4"></v-divider>
+                        <h3 class="text-h6 mb-2">Item yang Dipesan</h3>
+                        <v-row v-for="(item, index) in editedPO.items" :key="index" align="center">
+                            <v-col cols="6"><v-autocomplete :items="items" item-title="name" item-value="id" v-model="item.itemId" label="Pilih Barang" variant="outlined" hide-details></v-autocomplete></v-col>
+                            <v-col cols="4"><v-text-field v-model.number="item.quantityOrdered" label="Jumlah Pesan" type="number" variant="outlined" hide-details></v-text-field></v-col>
+                            <v-col cols="2"><v-btn icon="mdi-delete" variant="text" color="error" @click="removeItemFromPO(index)"></v-btn></v-col>
+                        </v-row>
+                        <v-btn text color="primary" @click="addItemToPO" class="mt-4">+ Tambah Item</v-btn>
+                    </v-card-text>
+                    <v-card-actions>
+                        <v-spacer></v-spacer>
+                        <v-btn @click="closePODialog">Batal</v-btn>
+                        <v-btn color="primary" @click="savePO">Simpan PO</v-btn>
+                    </v-card-actions>
+                </v-card>
+            </v-dialog>
+
+            <v-dialog v-model="receiveDialog" max-width="700px">
+                <v-card>
+                    <v-card-title>Terima Barang untuk PO: {{ receivingPO.poNumber }}</v-card-title>
+                    <v-card-actions class="justify-end">
+                         <v-btn color="primary" @click="startScanner('receive')" prepend-icon="mdi-barcode-scan">Scan Barcode</v-btn>
+                    </v-card-actions>
+                    <v-card-text>
+                        <div v-for="(item, index) in receivingPO.items" :key="item.itemId" class="mb-2">
+                            <p><strong>{{ getItemName(item.itemId) }}</strong></p>
+                            <p>Dipesan: {{ item.quantityOrdered }} | Sudah Diterima: {{ item.quantityReceived || 0 }}</p>
+                            <v-text-field v-model.number="receiptQuantities[item.itemId]" label="Jumlah Diterima Sekarang" type="number" variant="outlined"></v-text-field>
+                        </div>
+                    </v-card-text>
+                    <v-card-actions>
+                        <v-spacer></v-spacer>
+                        <v-btn @click="closeReceiveDialog">Batal</v-btn>
+                        <v-btn color="success" @click="saveGoodsReceipt">Konfirmasi Penerimaan</v-btn>
+                    </v-card-actions>
+                </v-card>
+            </v-dialog>
+
+            <v-dialog v-model="soDialog" max-width="800px">
+                <v-card>
+                    <v-card-title><span class="text-h5">Buat Sales Order Baru</span></v-card-title>
+                    <v-card-text>
+                        <v-row>
+                            <v-col cols="6"><v-text-field v-model="editedSO.soNumber" label="Nomor SO" variant="outlined"></v-text-field></v-col>
+                            <v-col cols="6"><v-autocomplete :items="customers" item-title="name" item-value="id" v-model="editedSO.customerId" label="Pilih Pelanggan" variant="outlined"></v-autocomplete></v-col>
+                        </v-row>
+                        <v-divider class="my-4"></v-divider>
+                        <h3 class="text-h6 mb-2">Item yang Dipesan</h3>
+                        <v-row v-for="(item, index) in editedSO.items" :key="index" align="center">
+                            <v-col cols="6"><v-autocomplete :items="items" item-title="name" item-value="id" v-model="item.itemId" label="Pilih Barang" variant="outlined" hide-details></v-autocomplete></v-col>
+                            <v-col cols="4"><v-text-field v-model.number="item.quantityOrdered" label="Jumlah Pesan" type="number" variant="outlined" hide-details></v-text-field></v-col>
+                            <v-col cols="2"><v-btn icon="mdi-delete" variant="text" color="error" @click="removeItemFromSO(index)"></v-btn></v-col>
+                        </v-row>
+                        <v-btn text color="primary" @click="addItemToSO" class="mt-4">+ Tambah Item</v-btn>
+                    </v-card-text>
+                    <v-card-actions>
+                        <v-spacer></v-spacer>
+                        <v-btn @click="closeSODialog">Batal</v-btn>
+                        <v-btn color="primary" @click="saveSO">Simpan SO</v-btn>
+                    </v-card-actions>
+                </v-card>
+            </v-dialog>
+
+            <v-dialog v-model="shipmentDialog" max-width="700px">
+                <v-card>
+                    <v-card-title>Kirim Barang untuk SO: {{ shippingSO.soNumber }}</v-card-title>
+                    <v-card-actions class="justify-end">
+                         <v-btn color="primary" @click="startScanner('ship')" prepend-icon="mdi-barcode-scan">Scan Barcode</v-btn>
+                    </v-card-actions>
+                    <v-card-text>
+                        <div v-for="(item, index) in shippingSO.items" :key="item.itemId" class="mb-2">
+                            <p><strong>{{ getItemName(item.itemId) }}</strong></p>
+                            <p>Dipesan: {{ item.quantityOrdered }} | Sudah Dikirim: {{ item.quantityShipped || 0 }}</p>
+                            <v-text-field v-model.number="shipmentQuantities[item.itemId]" label="Jumlah Dikirim Sekarang" type="number" variant="outlined"></v-text-field>
+                        </div>
+                    </v-card-text>
+                    <v-card-actions>
+                        <v-spacer></v-spacer>
+                        <v-btn @click="closeShipmentDialog">Batal</v-btn>
+                        <v-btn color="info" @click="saveShipment">Konfirmasi Pengiriman</v-btn>
+                    </v-card-actions>
+                </v-card>
+            </v-dialog>
+
+            <v-dialog v-model="supplierDialog" max-width="600px">
+                 <v-card>
+                    <v-card-title><span class="text-h5">{{ contactFormTitle }}</span></v-card-title>
+                    <v-card-text>
+                        <v-text-field v-model="editedContact.name" label="Nama Supplier" variant="outlined" class="mb-4"></v-text-field>
+                        <v-text-field v-model="editedContact.contactPerson" label="Nama Kontak" variant="outlined" class="mb-4"></v-text-field>
+                        <v-text-field v-model="editedContact.phone" label="Telepon" variant="outlined" class="mb-4"></v-text-field>
+                        <v-text-field v-model="editedContact.email" label="Email" variant="outlined" class="mb-4"></v-text-field>
+                        <v-textarea v-model="editedContact.address" label="Alamat" rows="2" variant="outlined"></v-textarea>
+                    </v-card-text>
+                    <v-card-actions>
+                        <v-spacer></v-spacer>
+                        <v-btn @click="closeContactDialog">Batal</v-btn>
+                        <v-btn color="primary" @click="saveSupplier">Simpan</v-btn>
+                    </v-card-actions>
+                </v-card>
+            </v-dialog>
+
+            <v-dialog v-model="customerDialog" max-width="600px">
+                 <v-card>
+                    <v-card-title><span class="text-h5">{{ contactFormTitle }}</span></v-card-title>
+                    <v-card-text>
+                        <v-text-field v-model="editedContact.name" label="Nama Pelanggan" variant="outlined" class="mb-4"></v-text-field>
+                        <v-text-field v-model="editedContact.contactPerson" label="Nama Kontak" variant="outlined" class="mb-4"></v-text-field>
+                        <v-text-field v-model="editedContact.phone" label="Telepon" variant="outlined" class="mb-4"></v-text-field>
+                        <v-text-field v-model="editedContact.email" label="Email" variant="outlined" class="mb-4"></v-text-field>
+                        <v-textarea v-model="editedContact.address" label="Alamat" rows="2" variant="outlined"></v-textarea>
+                    </v-card-text>
+                    <v-card-actions>
+                        <v-spacer></v-spacer>
+                        <v-btn @click="closeContactDialog">Batal</v-btn>
+                        <v-btn color="primary" @click="saveCustomer">Simpan</v-btn>
+                    </v-card-actions>
+                </v-card>
+            </v-dialog>
+
+            <v-dialog v-model="scannerDialog" max-width="500px" @click:outside="stopScanner">
+                <v-card>
+                    <v-card-title>Scan Barcode</v-card-title>
+                    <v-card-text>
+                        <div id="reader" width="100%"></div>
+                    </v-card-text>
+                    <v-card-actions>
+                        <v-spacer></v-spacer>
+                        <v-btn color="error" @click="stopScanner">Tutup</v-btn>
+                    </v-card-actions>
+                </v-card>
+            </v-dialog>
+        </div>
+    </v-app>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
+<script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/vuetify@3.6.10/dist/vuetify.min.js"></script>
+
+<script type="module" src="main.js">
+    
+</script>
+</body>
+</html>
